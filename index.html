@@ -54,17 +54,43 @@ fk=v=>v.toFixed(1).replace('.',','),n=v=>{const x=parseFloat(String(v).replace('
 es=s=>String(s??'').replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';'),
 M='JAN FEV MAR ABR MAI JUN JUL AGO SET OUT NOV DEZ'.split(' '),dd=d=>d.slice(8)+' '+M[+d.slice(5,7)-1],fd=d=>d.slice(8)+'/'+d.slice(5,7),
 DN=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
-let S=null;try{S=JSON.parse(localStorage.getItem('p30'))}catch(e){}
-S=S||{cfg:{p0:110,meta:100,d0:'2026-09-30',d1:'2026-10-30'},e:[{id:1,d:'2026-09-30',w:110,p:[],t:''}],day:{},cd:[],macro:'1.500 kcal · P 170 g · C 100 g · G 50 g',
-meals:[['Café da manhã','3 ovos, 2 fatias de pão, 1 banana'],['Almoço','180 g frango, 100 g arroz, 100 g feijão, salada'],['Lanche','170 g iogurte, 30 g whey, 1 fruta'],['Jantar','180 g carne, legumes, 100 g batata']].map(([n,i])=>({n,i,k:''})),
-wk:['Peito + Tríceps','Costas + Bíceps','Pernas','Peito + Ombro','Costas + Braços','Pernas + Abdômen','Descanso'].map(n=>({n,ex:[]}))};
-const save=()=>{try{localStorage.setItem('p30',JSON.stringify(S))}catch(e){}};
-const db=new Promise(r=>{try{const rq=indexedDB.open('p30',1);rq.onupgradeneeded=()=>rq.result.createObjectStore('p');rq.onsuccess=()=>r(rq.result);rq.onerror=()=>r(null)}catch(e){r(null)}});
-const put=async(k,v)=>{const d=await db;if(d)await new Promise(r=>{const t=d.transaction('p','readwrite');t.objectStore('p').put(v,k);t.oncomplete=r;t.onerror=r})};
-const get=async k=>{const d=await db;return d?new Promise(r=>{const q=d.transaction('p').objectStore('p').get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>r()}):null};
-const P={};async function hy(){for(const i of document.querySelectorAll('img[data-k]')){const k=i.dataset.k;if(!P[k]){const b=await get(k);if(b)P[k]=URL.createObjectURL(b)}if(P[k])i.src=P[k]}}
+let S=null;
+const NEW=()=>({cfg:null,e:[],day:{},cd:[],macro:'',
+meals:[['Café da manhã',''],['Almoço',''],['Lanche',''],['Jantar','']].map(([n,i])=>({n,i,k:''})),
+wk:['Peito + Tríceps','Costas + Bíceps','Pernas','Peito + Ombro','Costas + Braços','Pernas + Abdômen','Descanso'].map(n=>({n,ex:[]}))});
+/* ===== Camada de armazenamento: troque so este bloco para usar outro banco/cloud ===== */
+const Store=(()=>{
+const db=new Promise(r=>{try{const q=indexedDB.open('p30',2);q.onupgradeneeded=()=>{const d=q.result;['p','kv'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n)})};q.onsuccess=()=>r(q.result);q.onerror=q.onblocked=()=>r(null)}catch(e){r(null)}});
+const run=async(st,mode,f)=>{const d=await db;if(!d)return;return new Promise(r=>{try{const t=d.transaction(st,mode);let v;const q=f(t.objectStore(st));if(q)q.onsuccess=()=>v=q.result;t.oncomplete=()=>r(v);t.onerror=t.onabort=()=>r()}catch(e){r()}})};
+return{getState:()=>run('kv','readonly',s=>s.get('state')),setState:j=>run('kv','readwrite',s=>s.put(j,'state')),
+putPhoto:(k,b)=>run('p','readwrite',s=>s.put(b,k)),getPhoto:k=>run('p','readonly',s=>s.get(k)),delPhoto:k=>run('p','readwrite',s=>s.delete(k)),clearPhotos:()=>run('p','readwrite',s=>s.clear()),
+allPhotos:async()=>{const o=[];await run('p','readonly',s=>{const q=s.openCursor();q.onsuccess=()=>{const c=q.result;if(c){o.push({k:c.key,v:c.value});c.continue()}};return null});return o}}})();
+const save=()=>{S._ts=Date.now();const j=JSON.stringify(S);try{localStorage.setItem('p30',j)}catch(e){}Store.setState(j)};
+async function boot(){let b=null,a=null;try{b=JSON.parse(localStorage.getItem('p30'))}catch(e){}
+try{a=JSON.parse(await Store.getState())}catch(e){}
+S=[a,b].filter(x=>x&&Array.isArray(x.e)).sort((x,y)=>(y._ts||0)-(x._ts||0))[0]||NEW();
+if(!a||(b&&b._ts>(a._ts||0)))save()}
+let BF=null;
+const msg=t=>{$('#m').innerHTML=`<div class="sh"><h3>${t}</h3><div class="r"><button data-a="x">OK</button></div></div>`;$('#m').className='on'};
+const b64=d=>{const[h,b]=d.split(','),bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:(h.match(/:(.*?);/)||[])[1]||'image/jpeg'})};
+async function dataSheet(){let pe='não informado';try{pe=(await navigator.storage.persisted())?'ativa':'não ativa'}catch(e){}
+const f=S.e.reduce((a,e)=>a+e.p.length,0);
+$('#m').innerHTML=`<div class="sh"><h3>Dados e backup</h3><p>${S.e.length} registros · ${f} fotos · salvos neste aparelho</p><p>Último backup: ${S.bk?fd(S.bk):'nunca'} · Proteção contra limpeza: ${pe}</p><div class="r" style="flex-direction:column;align-items:stretch;margin-top:14px">${BF?`<button data-a="bks">Salvar backup (${(BF.size/1048576).toFixed(1)} MB)</button>`:'<button data-a="bke">Exportar meus dados</button>'}<button class="g" data-a="bki">Importar meus dados</button><button class="g" data-a="x">Fechar</button></div></div>`;$('#m').className='on'}
+async function bkExport(){$('#m').innerHTML='<div class="sh"><h3>Preparando backup…</h3></div>';
+const o={app:'projeto30',v:1,at:new Date().toISOString(),state:S,photos:{}};
+for(const{k,v}of await Store.allPhotos())if(v instanceof Blob)o.photos[k]=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(v)});
+BF=new File([JSON.stringify(o)],`projeto-30-backup-${td()}.json`,{type:'application/json'});dataSheet()}
+function bkSave(){const done=()=>{S.bk=td();save();BF=null;dataSheet()};
+function dl(){const u=URL.createObjectURL(BF),a=document.createElement('a');a.href=u;a.download=BF.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4e3);done()}
+if(navigator.canShare&&navigator.canShare({files:[BF]}))navigator.share({files:[BF]}).then(done).catch(e=>{if(e&&e.name!='AbortError')dl()});else dl()}
+async function bkImport(f){if(!f)return msg('Nenhum arquivo escolhido.');let o;try{o=JSON.parse(await f.text())}catch(e){}
+if(!o||o.app!='projeto30'||!o.state||!Array.isArray(o.state.e))return msg('Arquivo de backup inválido.');
+Object.keys(P).forEach(k=>{URL.revokeObjectURL(P[k]);delete P[k]});await Store.clearPhotos();
+for(const k in o.photos||{})await Store.putPhoto(k,b64(o.photos[k]));
+S=Object.assign(NEW(),o.state);save();go();msg('Dados importados: '+S.e.length+' registros.')}
+const P={};async function hy(){for(const i of document.querySelectorAll('img[data-k]')){const k=i.dataset.k;if(!P[k]){const b=await Store.getPhoto(k);if(b)P[k]=URL.createObjectURL(b)}if(P[k])i.src=P[k]}}
 let T=0,R=30,WD=(new Date().getDay()+6)%7,CM={a:0,b:0,p:'f',s:0},CP=[],SH;
-const E=()=>S.e.slice().sort((a,b)=>a.d<b.d?-1:1),D=d=>S.day[d]||(S.day[d]={});
+const E=()=>S.e.slice().sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.id-b.id),D=d=>S.day[d]||(S.day[d]={});
 const it=d=>{const x=S.day[d]||{},m=x.m||{};return[['Treino',x.t,'tg','t'],['Alimentação',S.meals.length&&S.meals.every((_,i)=>m[i]),'tab',4],['Cardio',S.cd.some(c=>c.d==d),'cd'],['Água '+(x.ag||0)+'/'+(S.cfg.ga||4),(x.ag||0)>=(S.cfg.ga||4),'no'],['Peso',S.e.some(e=>e.d==d&&e.w),'pw']]};
 const ok3=d=>it(d).filter(x=>x[1]).length>=3;
 const stk=()=>{let c=0,d=new Date();if(!ok3(iso(d)))d.setDate(d.getDate()-1);while(ok3(iso(d))){c++;d.setDate(d.getDate()-1)}return c};
@@ -73,14 +99,14 @@ const W=340,xs=p.map(a=>+new Date(a.d)),x0=xs[0],x1=xs[xs.length-1],ys=p.map(a=>
 X=i=>8+(W-16)*(x1==x0?0:(xs[i]-x0)/(x1-x0)),Y=v=>h-8-(h-16)*(v-lo)/(hi-lo);
 return`<svg viewBox="0 0 ${W} ${h}"><path d="${p.map((a,i)=>(i?'L':'M')+X(i)+' '+Y(a.w)).join('')}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>${dots?p.map((a,i)=>`<circle cx="${X(i)}" cy="${Y(a.w)}" r="6" data-a="pt" data-i="${i}"/>`).join(''):''}</svg>`}
 function sh(t,f,ok,del){const m=$('#m');
-m.innerHTML=`<div class="sh"><h3>${t}</h3>${f.map(([k,l,y,v,o])=>`<label>${l}`+(y=='ta'?`<textarea name="${k}">${es(v)}</textarea>`:y=='s'?`<select name="${k}">${o.map(x=>`<option${x==v?' selected':''}>${x}</option>`).join('')}</select>`:`<input name="${k}" type=${y=='n'?'text inputmode=decimal':y||'text'}${y=='file'?' accept=image/*':''} value="${es(v)}">`)+`</label>`).join('')}<div class="r">${del?'<button class="g" data-a="dl">Excluir</button>':''}<button class="g" data-a="x">Cancelar</button><button data-a="ok">Salvar</button></div></div>`;
+m.innerHTML=`<div class="sh"><h3>${t}</h3>${f.map(([k,l,y,v,o])=>`<label>${l}`+(y=='ta'?`<textarea name="${k}">${es(v)}</textarea>`:y=='s'?`<select name="${k}">${o.map(x=>`<option${x==v?' selected':''}>${x}</option>`).join('')}</select>`:`<input name="${k}" type=${y=='n'?'text inputmode=decimal':y=='json'?'file accept=.json,application/json':y||'text'}${y=='file'?' accept=image/*':''} value="${es(v)}">`)+`</label>`).join('')}<div class="r">${del?'<button class="g" data-a="dl">Excluir</button>':''}<button class="g" data-a="x">Cancelar</button><button data-a="ok">Salvar</button></div></div>`;
 m.className='on';SH={ok:()=>{const o={};f.forEach(([k])=>{const e=m.querySelector(`[name=${k}]`);o[k]=e.type=='file'?e.files[0]:e.value});ok(o);cl()},dl:()=>{del();cl()}}}
 const cl=()=>{$('#m').className='';$('#m').innerHTML=''};
 function eSheet(e){e=e||{d:td()};
 sh(e.id?'Editar registro':'Nova evolução',[['d','Data','date',e.d],['w','Peso (kg)','n',e.w],['c','Cintura (cm)','n',e.c],['ab','Abdômen (opcional)','n',e.ab],['pe','Peito (opcional)','n',e.pe],['br','Braço (opcional)','n',e.br],['co','Coxa (opcional)','n',e.co],['f','Foto frontal','file'],['l','Foto lateral','file'],['b','Foto traseira','file'],['t','Comentário pessoal','ta',e.t]],async o=>{
 const x=e.id?e:{id:Date.now(),p:[]};x.d=o.d||td();x.t=o.t;['w','c','ab','pe','br','co'].forEach(k=>x[k]=n(o[k]));
-for(const k of 'flb')if(o[k]){await put(x.id+'_'+k,o[k]);delete P[x.id+'_'+k];if(!x.p.includes(k))x.p.push(k)}
-if(!e.id)S.e.push(x);save();go()},e.id&&(()=>{S.e=S.e.filter(y=>y.id!=e.id);save();go()}))}
+for(const k of 'flb')if(o[k]){await Store.putPhoto(x.id+'_'+k,o[k]);delete P[x.id+'_'+k];if(!x.p.includes(k))x.p.push(k)}
+if(!e.id)S.e.push(x);save();go()},e.id&&(()=>{(e.p||[]).forEach(k=>{Store.delPhoto(e.id+'_'+k);delete P[e.id+'_'+k]});S.e=S.e.filter(y=>y.id!=e.id);save();go()}))}
 function exS(i){const d=S.wk[WD],x=i>=0?d.ex[i]:{h:[]},l=x.h.length?x.h[x.h.length-1][1]:'';
 sh(i>=0?'Exercício':'Novo exercício',[['n','Exercício','',x.n],['s','Séries × repetições','',x.s],['c','Carga','',l]],o=>{Object.assign(x,{n:o.n,s:o.s});if(o.c&&o.c!=l)x.h.push([td(),o.c]);if(i<0)d.ex.push(x);save();go()},i>=0&&(()=>{d.ex.splice(i,1);save();go()}))}
 function meS(i){const x=i>=0?S.meals[i]:{};
@@ -92,19 +118,20 @@ tr=[0,1,2,3,4,5,6].filter(k=>(S.day[ago(k)]||{}).t).length,lp=e.slice().reverse(
 dp=Math.max(0,Math.floor((new Date(td())-new Date(S.cfg.d0))/864e5)+1),dt=Math.floor((new Date(S.cfg.d1)-new Date(S.cfg.d0))/864e5)+1,
 ag=(S.day[td()]||{}).ag||0,ga=S.cfg.ga||4,gv=S.cfg.gv||1,ms=[`Você treinou ${tr} ${tr==1?'vez':'vezes'} nos últimos 7 dias.`,`Cardio esta semana: ${Math.floor(wm/60)}h${String(wm%60).padStart(2,'0')}.`];
 if(cs.length>1){const c=cs[cs.length-1].c-cs[0].c;ms.push(`Cintura: ${c>0?'+':''}${fk(c)} cm desde o início.`)}
-return`<h1>Projeto 30</h1><div class="big">${fk(cur)}<small> kg</small></div><p>Meta: ${fk(S.cfg.meta)} kg</p>
+return`<h1>Projeto 30</h1>${S.cfg.p0?'':'<button class="card" data-a="cf">Definir peso inicial e metas ›</button>'}<div class="big">${fk(cur)}<small> kg</small></div><p>Meta: ${fk(S.cfg.meta)} kg</p>
 <div class="g3"><div><b>${fk(lost)} kg</b><span>Perdido</span></div><div><b>${fk(cur-S.cfg.meta)} kg</b><span>Para a meta</span></div><div><b>${cs.length?fk(cs[cs.length-1].c)+' cm':'—'}</b><span>Cintura</span></div><div><b>${dp}/${dt}</b><span>Dias de projeto</span></div><div><b>${stk()}</b><span>Dias seguidos</span></div><div><b>${pct}%</b><span>Da meta</span></div></div>
 <section class="card"><h2>HOJE</h2>${its.map(r=>`<div class="row" data-a="${r[2]}" data-i="${r[3]??''}"><span class="ck">${r[1]?'✓':'○'}</span><b>${r[0]}</b></div>`).join('')}<div class="bar"><i style="width:${dn*20}%"></i></div></section>
 <section class="card"><h2>ÁGUA</h2><div class="row" style="border:0"><div><div class="big" style="font-size:40px">${fk(ag*gv)}<small> L</small></div><p>${ag} de ${ga} garrafas</p></div><button class="g" data-a="ag" data-i="-1">−</button><button data-a="ag" data-i="1">+ Garrafa</button></div><div class="bar"><i style="width:${Math.min(100,Math.round(ag/ga*100))}%"></i></div></section>
 <button class="card" data-a="ci">Como estou hoje? ${(S.day[td()]||{}).ci?'✓':'›'}</button>
 <section class="card"><h2>EVOLUÇÃO</h2>${ch(ew.slice(-14),80)}</section>
-<section class="card" data-a="tab" data-i="1"><h2>ÚLTIMA FOTO</h2>${lp?`<img data-k="${lp.id}_${lp.p.includes('f')?'f':lp.p[0]}">`:'<p>Nenhuma foto ainda. Adicione na aba Evolução.</p>'}</section><p>${ms.join('<br>')}</p>`}
+<section class="card" data-a="tab" data-i="1"><h2>ÚLTIMA FOTO</h2>${lp?`<img data-k="${lp.id}_${lp.p.includes('f')?'f':lp.p[0]}">`:'<p>Nenhuma foto ainda. Adicione na aba Evolução.</p>'}</section><p>${ms.join('<br>')}</p><button class="card" data-a="ds">Dados e backup · ${S.bk?'último '+fd(S.bk):'nunca exportado'} ›</button>`}
 function evo(){
 const e=E(),ph=e.filter(x=>x.p.length),a=ph.find(x=>x.id==CM.a)||ph[0],b=ph.find(x=>x.id==CM.b)||ph[ph.length-1],op=s=>ph.map(x=>`<option value="${x.id}"${x.id==s.id?' selected':''}>${fd(x.d)}</option>`).join('');let cp='';
 if(ph.length>1)cp=`<section class="card"><h2>COMPARAR</h2><div class="r" style="justify-content:stretch"><select data-a="cm" data-k="a">${op(a)}</select><select data-a="cm" data-k="b">${op(b)}</select><select data-a="cm" data-k="p">${[['f','Frente'],['l','Lado'],['b','Costas']].map(([k,l])=>`<option value="${k}"${k==CM.p?' selected':''}>${l}</option>`).join('')}</select></div>
 <div class="${CM.s?'sbs':'cmp'}" style="margin-top:12px">${CM.s?`<img data-k="${a.id}_${CM.p}"><img data-k="${b.id}_${CM.p}">`:`<img data-k="${b.id}_${CM.p}"><img id="top" data-k="${a.id}_${CM.p}" style="clip-path:inset(0 50% 0 0)"><span class="lb" style="left:8px">ANTES</span><span class="lb" style="right:8px">DEPOIS</span>`}</div>
 ${CM.s?'':'<input type="range" value="50" data-a="sl">'}<button class="g" data-a="sbs" style="margin-top:12px">${CM.s?'Slider':'Lado a lado'}</button> <button class="g" data-a="fs" style="margin-top:12px">Tela cheia</button></section>`;
 return`<h1>Evolução</h1><button data-a="ne" style="margin:10px 0">+ Nova evolução</button>${cp}<section class="card"><h2>LINHA DO TEMPO</h2>${e.slice().reverse().map(x=>`<div class="tl" data-a="ed" data-i="${x.id}"><div style="flex:1"><b>${dd(x.d)}</b><br>${x.w?fk(x.w)+' kg':''}${x.c?' · '+fk(x.c)+' cm':''}${x.p.length?' 📸':''}${x.t?`<p>“${es(x.t)}”</p>`:''}</div>${x.p.length?`<img data-k="${x.id}_${x.p[0]}">`:''}</div>`).join('')}</section>`}
+function cfS(){const c=S.cfg,first=!c.p0;sh(first?'Primeiro uso':'Metas',[['p0','Peso inicial (kg)','n',c.p0||''],['meta','Meta (kg)','n',c.meta||''],['d0','Data inicial','date',c.d0],['d1','Data objetivo','date',c.d1],['gv','Garrafa de água (L)','n',c.gv||1],['ga','Meta diária (garrafas)','n',c.ga||4]],o=>{const p0=n(o.p0);if(!p0)return;S.cfg={p0,meta:n(o.meta)||c.meta||p0,d0:o.d0||c.d0,d1:o.d1||c.d1,gv:n(o.gv)||1,ga:n(o.ga)||4};if(first&&!S.e.length)S.e.push({id:Date.now(),d:S.cfg.d0,w:p0,p:[],t:''});save();go()})}
 function med(){const e=E(),r=[['c','Cintura'],['ab','Abdômen'],['pe','Peito'],['br','Braço'],['co','Coxa']].map(([k,l])=>{const v=e.filter(x=>x[k]).map(x=>x[k]);if(!v.length)return'';const a=v[0],b=v[v.length-1],df=b-a;return`<div class="row"><b>${l}</b><div style="text-align:right">${v.length>1?fk(a)+' → ':''}${fk(b)} cm${v.length>1?`<p>${df>0?'+':''}${fk(df)} cm</p>`:''}</div></div>`}).join('');return`<section class="card"><h2>MEDIDAS</h2>${r||'<p>Adicione cintura e outras medidas em Evolução.</p>'}</section>`}
 function cS(i){const c=i>=0?S.cd[i]:{d:td()};sh('Cardio',[['tp','Tipo','s',c.tp||'Esteira',['Esteira','Escada','Bicicleta','Natação','Caminhada','Outro']],['m','Duração (min)','n',c.m],['km','Distância (km)','n',c.km],['ob','Observações','ta',c.ob]],o=>{Object.assign(c,{tp:o.tp,m:n(o.m)||0,km:n(o.km),ob:o.ob});if(!(i>=0))S.cd.push(c);save();go()},i>=0&&(()=>{S.cd.splice(i,1);save();go()}))}
 function cdl(){const l=S.cd.slice(-5).reverse();return`<section class="card"><h2>CARDIO</h2>${l.map(c=>`<div class="row" data-a="cx" data-i="${S.cd.indexOf(c)}"><div><b>${es(c.tp)}</b><p>${c.m} min${c.km?' · '+fk(c.km)+' km':''}</p></div><p>${fd(c.d)}</p></div>`).join('')||'<p>Nenhum cardio registrado.</p>'}<button class="g" data-a="cd" style="margin-top:10px">+ Cardio</button></section>`}
@@ -121,11 +148,11 @@ return`<h1>Alimentação</h1><p>${es(S.macro)}</p><div class="big">${p}<small>%<
 function go(){$('#v').innerHTML=[home,evo,peso,tre,ali][T]();document.querySelectorAll('nav button').forEach((b,i)=>b.className=i==T?'on':'');hy()}
 document.addEventListener('click',ev=>{const t=ev.target.closest('[data-a]');if(!t)return;const a=t.dataset.a,i=t.dataset.i,d=D(td());
 ({tab:()=>{T=+i;go();scrollTo(0,0)},
-tg:()=>{d[i]=!d[i];save();go()},ag:()=>{d.ag=Math.max(0,(d.ag||0)+ +i);save();go()},no:()=>{},
+tg:()=>{d[i]=!d[i];save();go()},ds:()=>{BF=null;dataSheet()},bke:()=>bkExport(),bks:()=>bkSave(),bki:()=>sh('Importar meus dados',[['f','Arquivo de backup (.json). Substitui os dados atuais.','json']],o=>bkImport(o.f)),ag:()=>{d.ag=Math.max(0,(d.ag||0)+ +i);save();go()},no:()=>{},
 cd:()=>cS(),cx:()=>cS(i),
-pw:()=>sh('Registrar peso',[['d','Data','date',td()],['w','Peso (kg)','n']],o=>{const w=n(o.w);if(!w)return;const x=S.e.find(y=>y.d==o.d);x?x.w=w:S.e.push({id:Date.now(),d:o.d,w,p:[]});save();go()}),
+pw:()=>sh('Registrar peso',[['d','Data','date',td()],['w','Peso (kg)','n']],o=>{const w=n(o.w);if(!w)return;S.e.push({id:Date.now(),d:o.d||td(),w,p:[]});save();go()}),
 ci:()=>{const c=d.ci||{};sh('Como eu estou hoje?',[['en','Energia','s',c.en,['😴','😐','🙂','🔥']],['fo','Fome','s',c.fo,['baixa','normal','alta']],['so','Sono','s',c.so,['ruim','médio','bom']],['tr','Treino','s',c.tr,['ruim','normal','bom','excelente']],['hu','Humor','s',c.hu,['😞','😐','🙂','😎']],['tx','O que percebi hoje?','ta',c.tx]],o=>{d.ci=o;save();go()})},
-cf:()=>sh('Metas',[['p0','Peso inicial (kg)','n',S.cfg.p0],['meta','Meta (kg)','n',S.cfg.meta],['d0','Data inicial','date',S.cfg.d0],['d1','Data objetivo','date',S.cfg.d1],['gv','Garrafa de água (L)','n',S.cfg.gv||1],['ga','Meta diária (garrafas)','n',S.cfg.ga||4]],o=>{S.cfg={p0:n(o.p0)||S.cfg.p0,meta:n(o.meta)||S.cfg.meta,d0:o.d0||S.cfg.d0,d1:o.d1||S.cfg.d1,gv:n(o.gv)||1,ga:n(o.ga)||4};save();go()}),
+cf:()=>cfS(),
 ne:()=>eSheet(),ed:()=>eSheet(S.e.find(y=>y.id==i)),
 pt:()=>{const p=CP[i],q=CP[i-1];$('#tip').textContent=fd(p.d)+' · '+fk(p.w)+' kg'+(q?' · '+(p.w-q.w>0?'+':'')+fk(p.w-q.w)+' kg':'')},
 rg:()=>{R=+i;go()},wd:()=>{WD=+i;go()},sbs:()=>{CM.s^=1;go()},
@@ -138,6 +165,7 @@ mc:()=>sh('Meta diária',[['k','Calorias e macros','',S.macro]],o=>{S.macro=o.k;
 x:cl,ok:()=>SH.ok(),dl:()=>SH.dl()})[a]?.()});
 document.addEventListener('input',ev=>{const t=ev.target;if(t.dataset.a=='sl'||t.dataset.a=='sl2')$(t.dataset.a=='sl'?'#top':'#top2').style.clipPath=`inset(0 ${100-t.value}% 0 0)`});
 document.addEventListener('change',ev=>{const t=ev.target;if(t.dataset.a=='cm'){CM[t.dataset.k]=t.dataset.k=='p'?t.value:+t.value;go()}});
-try{navigator.storage.persist()}catch(e){}
-go();
+(async()=>{try{await boot()}catch(e){S=S||NEW()}
+if(!S.cfg)S.cfg={p0:0,meta:0,d0:td(),d1:td(),gv:1,ga:4};
+go();if(!S.cfg.p0)cfS();try{navigator.storage.persist()}catch(e){}})();
 </script></body></html>
